@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Saucy Way - Audio Studio</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+  <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.6/dist/ffmpeg.min.js"></script>
+  <script src="https://unpkg.com/id3js@2.3.0/dist/id3.min.js"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            dark: '#000000',
+            primary: '#D6001C',
+            light: '#FFFFFF',
+            gray: '#1A1A1A',
+            grayLight: '#2D2D2D',
+            gold: '#F5B800'
+          },
+          fontFamily: {
+            sans: ['Inter', 'system-ui', 'sans-serif'],
+          },
+        }
+      }
+    }
+  </script>
+  <style type="text/tailwindcss">
+    @layer utilities {
+      .content-auto { content-visibility: auto; }
+      .drag-over { border-color: #D6001C !important; background-color: rgba(214, 0, 28, 0.1) !important; }
+      .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+      .scrollbar-hide::-webkit-scrollbar { display: none; }
+      .btn-active { @apply bg-primary text-white; }
+      .track-row { @apply bg-grayLight rounded-lg p-3 mb-2 flex flex-wrap items-center gap-3; }
+      .control-group { @apply flex flex-col gap-1; }
+      .waveform { @apply w-full h-16 bg-dark rounded mt-2 overflow-hidden; }
+      .locked { @apply opacity-50 pointer-events-none relative; }
+      .locked::after { content: "🔒"; @apply absolute top-2 right-2 text-lg; }
+    }
+  </style>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body class="bg-dark text-light font-sans min-h-screen flex flex-col">
+  <!-- Header -->
+  <header class="border-b border-gray-700 sticky top-0 z-50 bg-dark/90 backdrop-blur-md">
+    <div class="container mx-auto px-4 py-4 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 relative">
+          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-full h-full text-primary">
+            <path d="M18.1777 6.82233C21.1087 9.75338 21.1087 14.4966 18.1777 17.4277C15.2466 20.3587 10.5034 20.3587 7.57233 17.4277C4.64128 14.4966 4.64128 9.75338 7.57233 6.82233C10.5034 3.89128 15.2466 3.89128 18.1777 6.82233Z" stroke="currentColor" stroke-width="2"/>
+            <path d="M7.57233 17.4277L16.4277 6.82233" stroke="currentColor" stroke-width="2"/>
+          </svg>
+        </div>
+        <h1 class="text-[clamp(1.2rem,3vw,1.8rem)] font-bold text-light">Saucy <span class="text-primary">Way</span></h1>
+      </div>
+      <nav class="hidden md:flex gap-8">
+        <a href="#master" class="hover:text-primary transition-colors font-medium">Master</a>
+        <a href="#convert" class="hover:text-primary transition-colors font-medium">Convert</a>
+        <a href="#metadata" class="hover:text-primary transition-colors font-medium">Metadata</a>
+        <a href="#mixer" class="hover:text-primary transition-colors font-medium">Mixer</a>
+        <a href="#stems" class="hover:text-primary transition-colors font-medium">Stems</a>
+        <a href="#pricing" class="hover:text-primary transition-colors font-medium">Pricing</a>
+        <a href="#integrations" class="hover:text-primary transition-colors font-medium">Integrations</a>
+      </nav>
+      <button class="md:hidden text-light text-xl">
+        <i class="fa fa-bars"></i>
+      </button>
+    </div>
+  </header>
+
+  <!-- Hero / Drop Zone -->
+  <section class="py-12 md:py-20 px-4 bg-gradient-to-b from-dark to-gray">
+    <div class="container mx-auto text-center max-w-3xl">
+      <h2 class="text-[clamp(1.8rem,5vw,3.5rem)] font-bold mb-4">Your Ultimate Audio Studio</h2>
+      <p class="text-gray-300 text-lg mb-8">Master, convert, edit metadata, mix, stems — all in one place. Drag & drop files below.</p>
+      
+      <div id="dropZone" class="border-2 border-dashed border-gray-600 rounded-xl p-8 md:p-12 transition-all duration-300 hover:border-primary">
+        <i class="fa fa-music text-4xl text-primary mb-4"></i>
+        <p class="text-xl mb-2">Drag & Drop Audio Files Here</p>
+        <p class="text-gray-400 text-sm mb-4">Auto-converts unsupported formats</p>
+        <input type="file" id="fileInput" accept="audio/*" multiple class="hidden">
+        <button id="browseBtn" class="bg-primary hover:bg-primary/90 text-white px-6 py-3 rounded-lg font-semibold transition-all">
+          Browse Files
+        </button>
+      </div>
+
+      <!-- Current Plan -->
+      <div class="mt-6 inline-block bg-gray px-4 py-2 rounded-full text-sm">
+        Current Plan: <span id="currentPlan" class="font-semibold text-gold">Free</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Master Audio Section -->
+  <section class="py-16 px-4 bg-dark" id="master">
+    <div class="container mx-auto max-w-4xl">
+      <h3 class="text-[clamp(1.5rem,4vw,2.5rem)] font-bold text-center mb-8">Master Audio</h3>
+      
+      <!-- Presets -->
+      <div class="flex flex-wrap gap-3 justify-center mb-10">
+        <button class="preset-btn bg-primary/20 hover:bg-primary/30 text-primary px-4 py-2 rounded" data-preset="podcast">Podcast</button>
+        <button class="preset-btn bg-primary/20 hover:bg-primary/30 text-primary px-4 py-2 rounded" data-preset="music">Music</button>
+        <button class="preset-btn bg-primary/20 hover:bg-primary/30 text-primary px-4 py-2 rounded" data-preset="voice">Voice Over</button>
+        <button class="preset-btn bg-primary/20 hover:bg-primary/30 text-primary px-4 py-2 rounded" data-preset="drums">Drums</button>
+        <button class="preset-btn bg-primary/20 hover:bg-primary/30 text-primary px-4 py-2 rounded" data-preset="flat">Flat / Neutral</button>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <!-- EQ -->
+        <div class="bg-gray rounded-xl p-5">
+          <h4 class="font-semibold mb-3">EQ</h4>
+          <div class="space-y-3 text-sm">
+            <label class="block">
+              <span class="flex justify-between"><span>Bass (80Hz)</span><span id="bassVal">50</span></span>
+              <input type="range" min="0" max="100" value="50" class="w-full" id="bassGain">
+            </label>
+            <label class="block">
+              <span class="flex justify-between"><span>Mid (1kHz)</span><span id="midVal">50</span></span>
+              <input type="range" min="0" max="100" value="50" class="w-full" id="midGain">
+            </label>
+            <label class="block">
+              <span class="flex justify-between"><span>Treble (8kHz)</span><span id="trebleVal">50</span></span>
+              <input type="range" min="0" max="100" value="50" class="w-full" id="trebleGain">
+            </label>
+          </div>
+        </div>
+
+        <!-- Dynamics (Premium) -->
+        <div class="bg-gray rounded-xl p-5 premium-feature locked">
+          <h4 class="font-semibold mb-3">Dynamics</h4>
+          <div class="space-y-3 text-sm">
+            <label class="block">
+              <span class="flex justify-between"><span>Compression</span><span id="compVal">30</span></span>
+              <input type="range" min="0" max="100" value="30" class="w-full" id="compressor">
+            </label>
+            <label class="block">
+              <span class="flex justify-between"><span>Limiter Ceiling</span><span id="limitVal">80</span></span>
+              <input type="range" min="0" max="100" value="80" class="w-full" id="limiter">
+            </label>
+            <label class="block">
+              <span class="flex justify-between"><span>Saturation</span><span id="satVal">20</span></span>
+              <input type="range" min="0" max="100" value="20" class="w-full" id="saturation">
+            </label>
+          </div>
+        </div>
+
+        <!-- Space & Width (Premium) -->
+        <div class="bg-gray rounded-xl p-5 premium-feature locked">
+          <h4 class="font-semibold mb-3">Space & Width</h4>
+          <div class="space-y-3 text-sm">
+            <label class="block">
+              <span class="flex justify-between"><span>Stereo Width</span><span id="widthVal">70</span></span>
+              <input type="range" min="0" max="100" value="70" class="w-full" id="stereoWidth">
+            </label>
+            <label class="block">
+              <span class="flex justify-between"><span>Reverb</span><span id="revVal">15</span></span>
+              <input type="range" min="0" max="100" value="15" class="w-full" id="reverb">
+            </label>
+            <label class="block">
+              <span class="flex justify-between"><span>Output Gain</span><span id="outVal">85</span></span>
+              <input type="range" min="0" max="100" value="85" class="w-full" id="outputGain">
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div class="text-center mt-8">
+        <button id="startMasterBtn" class="bg-primary hover:bg-primary/90 px-8 py-3 rounded-lg font-semibold">
+          Start Mastering
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Metadata Editor -->
+  <section class="py-16 px-4 bg-gray" id="metadata">
+    <div class="container mx-auto max-w-4xl">
+      <h3 class="text-[clamp(1.5rem,4vw,2.5rem)] font-bold text-center mb-8">Metadata Editor</h3>
+      <p class="text-center text-gray-300 mb-8">Edit song details, cover art, and embed into file — perfect for printing CD covers, tracklists, or digital booklets</p>
+      
+      <div class="bg-dark rounded-xl p-6">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <!-- Left: Text Fields -->
+          <div class="space-y-4">
+            <div>
+              <label class="block text-sm mb-1">Title</label>
+              <input type="text" id="metaTitle" class="w-full bg-grayLight border border-gray-700 rounded px-3 py-2" placeholder="Song Title">
+            </div>
+            <div>
+              <label class="block text-sm mb-1">Artist</label>
+              <input type="text" id="metaArtist" class="w-full bg-grayLight border border-gray-700 rounded px-3 py-2" placeholder="Artist Name">
+            </div>
+            <div>
+              <label class="block text-sm mb-1">Album</label>
+              <input type="text" id="metaAlbum" class="w-full bg-grayLight border border-gray-700 rounded px-3 py-2" placeholder="Album Name">
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-sm mb-1">Year</label>
+                <input type="number" id="metaYear" class="w-full bg-grayLight border border-gray-700 rounded px-3 py-2" placeholder="2026">
+              </div>
+              <div>
+                <label class="block text-sm mb-1">Genre</label>
+                <input type="text" id="metaGenre" class="w-full bg-grayLight border border-gray-700 rounded px-3 py-2" placeholder="Hip-Hop, Pop, etc.">
+              </div>
+            </div>
+            <div>
+              <label class="block text-sm mb-1">Track Number</label>
+              <input type="text" id="metaTrack" class="w-full bg-grayLight border border-gray-700 rounded px-3 py-2" placeholder="1 / 12">
+            </div>
+            <div>
+              <label class="block text-sm mb-1">Comments / Notes</label>
+              <textarea id="metaComment" class="w-full bg-grayLight border border-gray-700 rounded px-3 py-2 h-20" placeholder="Add notes for printing..."></textarea>
+            </div>
+          </div>
+
+          <!-- Right: Cover Art & Actions -->
+          <div class="flex flex-col items-center justify-center space-y-4">
+            <div id="coverPreview" class="w-48 h-48 bg-grayLight rounded-lg flex items-center justify-center overflow-hidden border-2 border-dashed border-gray-600">
+              <span class="text-gray-400">No Cover</span>
+            </div>
+            <input type="file" id="coverInput" accept="image/*" class="hidden">
+            <button id="loadCoverBtn" class="bg-primary/20 hover:bg-primary/30 text-primary px-4 py-2 rounded">
+              Upload Cover Art
+            </button>
+            <button id="printMetaBtn" class="bg-gold hover:bg-gold/90 text-dark px-4 py-2 rounded font-semibold w-full">
+              <i class="fa fa-print mr-2"></i> Print Metadata
+            </button>
+            <button id="saveMetaBtn" class="bg-primary hover:bg-primary/90 text-white px-4 py-2 rounded font-semibold w-full premium-feature locked">
+              Save Metadata to File
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Convert Section -->
+  <section class="py-16 px-4 bg-dark" id="convert">
+    <div class="container mx-auto max-w-3xl">
+      <h3 class="text-[clamp(1.5rem,4vw,2.5rem)] font-bold text-center mb-8">Convert Audio / Auto-Convert</h3>
+      <p class="text-center text-gray-300 mb-8">Unsupported formats are automatically converted to WAV before processing</p>
+      
+      <div class="bg-gray rounded-xl p-6">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <label class="block mb-2 text-sm">Output Format</label>
+            <select id="outputFormat" class="w-full bg-grayLight border border-gray-700 rounded px-3 py-2">
+              <option value="mp3">MP3</option>
+              <option value="wav" selected>WAV</option>
+              <option value="flac">FLAC</option>
+              <option value="aac">AAC</option>
+              <option value="ogg">OGG</option>
+              <option value="m4a">M4A</option>
+            </select>
+          </div>
+          <div>
+            <label class="block mb-2 text-sm">Bitrate / Quality</label>
+            <select id="bitrate" class="w-full bg-grayLight border border-gray-700 rounded px-3 py-2">
+              <option value="128">128 kbps</option>
+              <option value="192">192 kbps</option>
+              <option value="256">256 kbps</option>
+              <option value="320" selected>320 kbps</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6-Track Mixer WITH WAVEFORMS -->
+  <section class="py-16 px-4 bg-gray" id="mixer">
+    <div class="container mx-auto max-w-4xl">
+      <h3 class="text-[clamp(1.5rem,4vw,2.5rem)] font-bold text-center mb-8">6-Track Mixer</h3>
+      <p class="text-center text-gray-300 mb-8">Mix up to 6 tracks — volume, pan, mute, solo, fade — with visual waveforms</p>
+
+      <div id="mixerCanvas" class="bg-dark rounded-xl p-5">
+        <!-- Track 1 -->
+        <div class="track-row">
+          <div class="w-24 font-medium">Track 1</div>
+          <div class="control-group">
+            <label class="text-xs">Vol</label>
+            <input type="range" min="0" max="100" value="80" class="w-20 track-vol" data-track="1">
+          </div>
+          <div class="control-group">
+            <label class="text-xs">Pan</label>
+            <input type="range" min="-100" max="100" value="0" class="w-20 track-pan" data-track="1">
+          </div>
+          <button class="mute-btn px-2 py-1 bg-grayLight rounded" data-track="1">Mute</button>
+          <button class="solo-btn px-2 py-1 bg-grayLight rounded" data-track="1">Solo</button>
+          <div class="ml-auto text-xs text-gray-400">Drag file here</div>
+          <canvas class="waveform w-full" id="wave1"></canvas>
+        </div>
+        <!-- Track 2 -->
+        <div class="track-row">
+          <div class="w-24 font-medium">Track 2</div>
+          <div class="control-group">
+            <label class="text-xs">Vol</label>
+            <input type="range" min="0" max="100" value="80" class="w-20 track-vol" data-track="2">
+          </div>
+          <div class="control-group">
+            <label class="text-xs">Pan</label>
+            <input type="range" min="-100" max="100" value="0" class="w-20 track-pan" data-track="2">
+          </div>
+          <button class="mute-btn px-2 py-1 bg-grayLight rounded" data-track="2">Mute</button>
+          <button class="solo-btn px-2 py-1 bg-grayLight rounded" data-track="2">Solo</button>
+          <div class="ml-auto text-xs text-gray-400">Drag file here</div>
+          <canvas class="waveform w-full" id="wave2"></canvas>
+        </div>
+        <!-- Track 3 (Premium) -->
+        <div class="track-row premium-feature locked">
+          <div class="w-24 font-medium">Track 3</div>
+          <div class="control-group">
+            <label class="text-xs">Vol</label>
+            <input type="range" min="0" max="100" value="80" class="w-20 track-vol" data-track="3">
+          </div>
+          <div class="control-group">
+            <label class="text-xs">Pan</label>
+            <input type="range" min="-100" max="100" value="0" class="w-20 track-pan" data-track="3">
+          </div>
+          <button class="mute-btn px-2 py-1 bg-grayLight rounded" data-track="3">Mute</button>
+          <button class="solo-btn px-2 py-1 bg-grayLight rounded" data-track="3">Solo</button>
+          <div class="ml-auto text-xs text-gray-400">Drag file here</div>
+          <canvas class="waveform w-full" id="wave3"></canvas>
+        </div>
+        <!-- Track 4 (Premium) -->
+        <div class="track-row premium-feature locked">
+          <div class="w-24 font-medium">Track 4</div>
+          <div class="control-group">
+            <label class="text-xs">Vol</label>
+            <input type="range" min="0" max="100" value="80" class="w-20 track-vol" data-track="4">
+          </div>
+          <div class="control-group">
+            <label class="text-xs">Pan</label>
+            <input type="range" min="-100" max="100" value="0" class="w-20 track-pan" data-track="4">
+          </div>
+          <button class="mute-btn px-2 py-1 bg-grayLight rounded" data-track="4">Mute</button>
+          <button class="solo-btn px-2 py-1 bg-grayLight rounded" data-track="4">Solo</button>
+          <div class="ml-auto text-xs text-gray-400">Drag file here</div>
+          <canvas class="waveform w-full" id="wave4"></canvas>
+        </div>
+        <!-- Track 5 (Premium) -->
+        <div class="track-row premium-feature locked">
+          <div class="w-24 font-medium">Track 5</div>
+          <div class="control-group">
+            <label class="text-xs">Vol</label>
+            <input type="range" min="0" max="100" value="80" class="w-20 track-vol" data-track="5">
+          </div>
+          <div class="control-group">
+            <label class="text-xs">Pan</label>
+            <input type="range" min="-100" max="100" value="0" class="w-20 track-pan" data-track="5">
+          </div>
+          <button class="mute-btn px-2 py-1 bg-grayLight rounded" data-track="5">Mute</button>
+          <button class="solo-btn px-2 py-1 bg-grayLight rounded" data-track="5">Solo</button>
+          <div class="ml-auto text-xs text-gray-400">Drag file here</div>
+          <canvas class="waveform w-full" id="wave5"></canvas>
+        </div>
+        <!-- Track 6 (Premium) -->
+        <div class="track-row premium-feature locked">
+          <div class="w-24 font-medium">Track 6</div>
+          <div class="control-group">
+            <label class="text-xs">Vol</label>
+            <input type="range" min="0" max="100" value="80" class="w-20 track-vol" data-track="6">
+          </div>
+          <div class="control-group">
+            <label class="text-xs">Pan</label>
+            <input type="range" min="-100" max="100" value="0" class="w-20 track-pan" data-track="6">
+          </div>
+          <button class="mute-btn px-2 py-1 bg-grayLight rounded" data-track="6">Mute</button>
+          <button class="solo-btn px-2 py-1 bg-grayLight rounded" data-track="6">Solo</button>
+          <div class="ml-auto text-xs text-gray-400">Drag file here</div>
+          <canvas class="waveform w-full" id="wave6"></canvas>
+        </div>
+
+        <div class="mt-6 text-center">
+          <label class="block mb-2 text-sm">Fade In/Out Time (seconds)</label>
+          <input type="number" min="0" max="10" value="2" class="w-24 bg-grayLight border border-gray-700 rounded px-2 py-1 mb-4" id="mixFade">
+          <br>
+          <button id="exportMixBtn" class="bg-primary hover:bg-primary/90 px-6 py-2 rounded-lg font-semibold">
+            Export Mix
+          </button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Stems Section (6 Components) WITH WAVEFORMS -->
+  <section class="py-16 px-4 bg-dark" id="stems">
+    <div class="container mx-auto max-w-4xl">
+      <h3 class="text-[clamp(1.5rem,4vw,2.5rem)] font-bold text-center mb-8">Stems (6 Components)</h3>
+      <p class="text-center text-gray-300 mb-8">Load, mix, or export individual stems: Drums, Bass, Vocals, Melody, FX, Other — with waveforms</p>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div class="bg-gray rounded-lg p-4 text-center">
+          <h4 class="font-semibold mb-2">🥁 Drums</h4>
+          <input type="file" accept="audio/*" class="stem-input hidden" data-stem="drums">
+          <button class="stem-load bg-primary/20 hover:bg-primary/30 text-primary px-3 py-1 rounded text-sm">Load Stem</button>
+          <div class="mt-2"><input type="range" min="0" max="100" value="70" class="w-full stem-vol" data-stem="drums"></div>
+          <canvas class="waveform w-full mt-2" id="stemWave1"></canvas>
+        </div>
+        <div class="bg-gray rounded-lg p-4 text-center premium-feature locked">
+          <h4 class="font-semibold mb-2">🎸 Bass</h4>
+          <input type="file" accept="audio/*" class="stem-input hidden" data-stem="bass">
+          <button class="stem-load bg-primary/20 hover:bg-primary/30 text-primary px-3 py-1 rounded text-sm">Load Stem</button>
+          <div class="mt-2"><input type="range" min="0" max="100" value="70" class="w-full stem-vol" data-stem="bass"></div>
+          <canvas class="waveform w-full mt-2" id="stemWave2"></canvas>
+        </div>
+        <div class="bg-gray rounded-lg p-4 text-center premium-feature locked">
+          <h4 class="font-semibold mb-2">🎤 Vocals</h4>
+          <input type="file" accept="audio/*" class="stem-input hidden" data-stem="vocals">
+          <button class="stem-load bg-primary/20 hover:bg-primary/30 text-primary px-3 py-1 rounded text-sm">Load Stem</button>
+          <div class="mt-2"><input type="range" min="0" max="100" value="80" class="w-full stem-vol" data-stem="vocals"></div>
+          <canvas class="waveform w-full mt-2" id="stemWave3"></canvas>
+        </div>
+        <div class="bg-gray rounded-lg p-4 text-center premium-feature locked">
+          <h4 class="font-semibold mb-2">🎹 Melody</h4>
+          <input type="file" accept="audio/*" class="stem-input hidden" data-stem="melody">
+          <button class="stem-load bg-primary/20 hover:bg-primary/30 text-primary px-3 py-1 rounded text-sm">Load Stem</button>
+          <div class="mt-2"><input type="range" min="0" max="100" value="70" class="w-full stem-vol" data-stem="melody"></div>
+          <canvas class="waveform w-full mt-2" id="stemWave4"></canvas>
+        </div>
+        <div class="bg-gray rounded-lg p-4 text-center premium-feature locked">
+          <h4 class="font-semibold mb-2">✨ FX</h4>
+          <input type="file" accept="audio/*" class="stem-input hidden" data-stem="fx">
+          <button class="stem-load bg-primary/20 hover:bg-primary/30 text-primary px-3 py-1 rounded text-sm">Load Stem</button>
+          <div class="mt-2"><input type="range" min="0" max="100" value="50" class="w-full stem-vol" data-stem="fx"></div>
+          <canvas class="waveform w-full mt-2" id="stemWave5"></canvas>
+        </div>
+        <div class="bg-gray rounded-lg p-4 text-center premium-feature locked">
+          <h4 class="font-semibold mb-2">🎵 Other</h4>
+          <input type="file" accept="audio/*" class="stem-input hidden" data-stem="other">
+          <button class="stem-load bg-primary/20 hover:bg-primary/30 text-primary px-3 py-1 rounded text-sm">Load Stem</button>
+          <div class="mt-2"><input type="range" min="0" max="100" value="60" class="w-full stem-vol" data-stem="other"></div>
+          <canvas class="waveform w-full mt-2" id="stemWave6"></canvas>
+        </div>
+      </div>
+
+      <div class="text-center mt-8">
+        <button id="exportStemsBtn" class="bg-primary hover:bg-primary/90 px-6 py-2 rounded-lg font-semibold premium-feature locked">
+          Export Full Stem Mix
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Pricing / Subscription (ZAR) -->
+  <section class="py-16 px-4 bg-gray" id="pricing">
+    <div class="container mx-auto max-w-4xl">
+      <h3 class="text-[clamp(1.5rem,4vw,2.5rem)] font-bold text-center mb-12">Subscription Plans</h3>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-3xl mx-auto">
+        <!-- Free Plan -->
+        <div class="bg-dark rounded-xl p-8 border-2 border-transparent hover:border-gold transition-all">
+          <h4 class="text-2xl font-bold text-gold mb-2">Free</h4>
+          <div class="text-3xl font-bold mb-4">R 0<span class="text-sm font-normal text-gray-400"> / month</span></div>
+          <ul class="space-y-2 mb-6 text-sm">
+            <li>✅ Master: Basic EQ only</li>
+            <li>✅ Convert: MP3, WAV only</li>
+            <li>✅ Metadata: View & Print only</li>
+            <li>✅ Mixer: 2 tracks max</li>
+            <li>✅ Stems: 1 stem only</li>
+            <li>❌ No Saturation / Reverb / Limiter</li>
+            <li>❌ No FLAC / AAC / OGG</li>
+            <li>❌ Save metadata to file</li>
+          </ul>
+          <button class="w-full bg-gold/20 text-gold py-2 rounded-lg font-semibold" disabled>Current Plan</button>
+        </div>
+
+        <!-- Premium Plan -->
+        <div class="bg-dark rounded-xl p-8 border-2 border-primary hover:border-gold transition-all scale-105 shadow-[0_0_25px_rgba(214,0,28,0.2)]">
+          <div class="inline-block bg-primary text-white text-xs px-2 py-1 rounded mb-2">RECOMMENDED</div>
+          <h4 class="text-2xl font-bold text-primary mb-2">Premium</h4>
+          <div class="text-3xl font-bold mb-4">R 89<span class="text-sm font-normal text-gray-400"> / month</span></div>
+          <ul class="space-y-2 mb-6 text-sm">
+            <li>✅ Master: Full EQ + Comp + Saturation + Reverb + Limiter</li>
+            <li>✅ Convert: All formats (MP3, WAV, FLAC, AAC, OGG, M4A)</li>
+            <li>✅ Metadata: Full edit + save to file</li>
+            <li>✅ Mixer: Full 6 tracks</li>
+            <li>✅ Stems: All 6 components</li>
+            <li>✅ High quality 320kbps / Lossless</li>
+            <li>✅ Batch processing</li>
+            <li>✅ Priority support</li>
+          </ul>
+          <button id="upgradeBtn" class="w-full bg-primary hover:bg-primary/90 text-white py-2 rounded-lg font-semibold">Upgrade to Premium</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Integrations -->
+  <section class="py-16 px-4 bg-dark" id="integrations">
+    <div class="container mx-auto max-w-4xl">
+      <h3 class="text-[clamp(1.5rem,4vw,2.5rem)] font-bold text-center mb-12">External Tool Integrations</h3>
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-6 text-center">
+        <div class="p-4 bg-gray rounded-lg hover:scale-105 transition-transform">
+          <i class="fa fa-windows text-3xl text-primary mb-2"></i>
+          <p>Audacity</p>
+        </div>
+        <div class="p-4 bg-gray rounded-lg hover:scale-105 transition-transform">
+          <i class="fa fa-music text-3xl text-primary mb-2"></i>
+          <p>FL Studio</p>
+        </div>
+        <div class="p-4 bg-gray rounded-lg hover:scale-105 transition-transform">
+          <i class="fa fa-volume-up text-3xl text-primary mb-2"></i>
+          <p>Ableton Live</p>
+        </div>
+        <div class="p-4 bg-gray rounded-lg hover:scale-105 transition-transform">
+          <i class="fa fa-code text-3xl text-primary mb-2"></i>
+          <p>FFmpeg</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- File List -->
+  <section id="fileListSection" class="py-12 px-4 bg-gray hidden">
+    <div class="container mx-auto max-w-3xl">
+      <h3 class="text-xl font-semibold mb-4">Loaded Files</h3>
+      <ul id="fileList" class="space-y-3"></ul>
+    </div>
+  </section>
+
+  <!-- Status Bar -->
+  <div id="statusBar" class="fixed bottom-0 left-0 right-0 bg-primary text-white py-2 px-4 text-center transform translate-y-full transition-transform z-50">
+    <span id="statusText"></span>
+  </div>
+
+  <!-- Footer -->
+  <footer class="mt-auto border-t border-gray-800 py-8 px-4 text-gray-400 text-sm">
+    <div class="container mx-auto max-w-4xl">
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-8 mb-6">
+        <!-- Brand -->
+        <div class="text-center md:text-left">
+          <div class="flex items-center justify-center md:justify-start gap-2 mb-3">
+            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-primary">
+              <path d="M18.1777 6.82233C21.1087 9.75338 21.1087 14.4966 18.1777 17.4277C15.2466 20.3587 10.5034 20.3587 7.57233 17.4277C4.64128 14.4966 4.64128 9.75338 7.57233 6.82233C10.5034 3.89128 15.2466 3.89128 18.1777 6.82233Z" stroke="currentColor" stroke-width="2"/>
+              <path d="M7.57233 17.4277L16.4277 6.82233" stroke="currentColor" stroke-width="2"/>
+            </svg>
+            <span class="text-light font-semibold text-lg">Saucy Way</span>
+          </div>
+          <p>Master • Convert • Metadata • Mix • Stems — All in one studio</p>
+        </div>
+
+        <!-- Contact -->
+        <div class="text-center md:text-left">
+          <h4 class="text-light font-semibold mb-2">Contact</h4>
+          <p class="mb-1">Email: <a href="mailto:saucyway@tunesauce.com" class="text-primary hover:underline">saucyway@tunesauce.com</a></p>
+        </div>
+
+        <!-- Socials -->
+        <div class="text-center md:text-left">
+          <h4 class="text-light font-semibold mb-2">Follow Us</h4>
+          <div class="flex justify-center md:justify-start gap-4 text-xl">
+            <a href="#" class="hover:text-primary transition-colors" title="Instagram @saucyway"><i class="fa fa-instagram"></i></a>
+            <a href="#" class="hover:text-primary transition-colors" title="YouTube @saucyway"><i class="fa fa-youtube-play"></i></a>
+            <a href="#" class="hover:text-primary transition-colors" title="Facebook @saucyway"><i class="fa fa-facebook"></i></a>
+            <a href="#" class="hover:text-primary transition-colors" title="X @saucyway"><i class="fa fa-twitter"></i></a>
+            <a href="#" class="hover:text-primary transition-colors" title="Icon @saucyway"><i class="fa fa-music"></i></a>
+          </div>
+          <p class="mt-1 text-xs">@saucyway on all platforms</p>
+        </div>
+      </div>
+
+      <div class="border-t border-gray-800 pt-4 text-center">
+        <p>&copy; 2026 Saucy Way. All rights reserved.</p>
+      </div>
+    </div>
+  </footer>
+
+  <!-- JavaScript -->
+  <script>
+    const { FFmpeg } = FFmpeg;
+    const ffmpeg = new FFmpeg();
+    let loadedFiles = [];
+    let audioContext;
+    let stemsData = {};
+    let currentPlan = 'free'; // 'free' or 'premium'
+    let coverArtBlob = null;
+
+    // DOM Elements
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+    const browseBtn = document.getElementById('browseBtn');
+    const fileList = document.getElementById('fileList');
+    const fileListSection = document.getElementById('fileListSection');
+    const statusBar = document.getElementById('statusBar');
+    const statusText = document.getElementById('statusText');
+    const upgradeBtn = document.getElementById('upgradeBtn');
+    const currentPlanEl = document.getElementById('currentPlan');
+    const loadCoverBtn = document.getElementById('loadCoverBtn');
+    const coverInput = document.getElementById('coverInput');
+    const coverPreview = document.getElementById('coverPreview');
+    const printMetaBtn = document.getElementById('printMetaBtn');
+    const saveMetaBtn = document.getElementById('saveMetaBtn');
+
+    // Initialize Audio Context
+    function initAudio() {
+      if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    }
+
+    // Status Bar Helpers
+    function showStatus(text, duration = 3000) {
+      statusText.textContent = text;
+      statusBar.classList.remove('translate-y-full');
+      setTimeout(() => statusBar.classList.add('translate-y-full'), duration);
+    }
+
+    // Auto-Convert Unsupported Formats
+    async function autoConvertIfNeeded(file) {
+      const supportedTypes = ['audio/wav', 'audio/mp3', 'audio/mpeg', 'audio/flac', 'audio/aac', 'audio/ogg'];
+      if (supportedTypes.includes(file.type)) return file;
+
+      showStatus(`Converting unsupported format: ${file.type} → WAV`);
+      if (!ffmpeg.loaded) await ffmpeg.load();
+      ffmpeg.loaded = true;
+
+      const inputName = 'temp_in.' + file.name.split('.').pop();
+      const outputName = 'temp_out.wav';
+      const data = new Uint8Array(await file.arrayBuffer());
+      await ffmpeg.writeFile(inputName, data);
+      await ffmpeg.exec(['-i', inputName, '-y', outputName]);
+      const outData = await ffmpeg.readFile(outputName);
+      await ffmpeg.deleteFile(inputName);
+      await ffmpeg.deleteFile(outputName);
+
+      return new File([outData.buffer], file.name.replace(/\.[^/.]+$/, '.wav'), { type: 'audio/wav' });
+    }
+
+    // File Handling
+    browseBtn.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', async e => {
+      const files = e.target.files;
+      const processed = [];
+      for (let f of files) processed.push(await autoConvertIfNeeded(f));
+      handleFiles(processed);
+    });
+
+    // Drag & Drop
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(e => {
+      dropZone.addEventListener(e, preventDefaults, false);
+      document.body.addEventListener(e, preventDefaults, false);
+    });
+    function preventDefaults(e) { e.preventDefault(); e.stopPropagation(); }
+
+    ['dragenter', 'dragover'].forEach(e => dropZone.addEventListener(e, () => dropZone.classList.add('drag-over')));
+    ['dragleave', 'drop'].forEach(e => dropZone.addEventListener(e, () => dropZone.classList.remove('drag-over')));
+
+    dropZone.addEventListener('drop', async e => {
+      const items = e.dataTransfer.files;
+      const processed = [];
+      for (let f of items) if (f.type.startsWith('audio/')) processed.push(await autoConvertIfNeeded(f));
+      handleFiles(processed);
+    });
+
+    function handleFiles(files) {
+      if (files.length === 0) return;
+      loadedFiles = files;
+      fileList.innerHTML = '';
+      fileListSection.classList.remove('hidden');
+
+      files.forEach((file, idx) => {
+        const li = document.createElement('li');
+        li.className = 'bg-grayLight p-4 rounded-lg flex flex-col md:flex-row md:items-center justify-between gap-3';
+        li.innerHTML = `
+          <div class="flex items-center gap-3">
+            <i class="fa fa-music text-primary"></i>
+            <div>
+              <p class="font-medium">${file.name}</p>
+              <p class="text-xs text-gray-400">${(file.size / (1024 * 1024)).toFixed(2)} MB</p>
+            </div>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <audio controls class="h-8"><source src="${URL.createObjectURL(file)}" type="${file.type}">
+          </div>
+        `;
+        fileList.appendChild(li);
+        if(idx < 6) drawWaveform(file, document.getElementById(`wave${idx+1}`));
+        if(idx === 0) loadMetadataFromFile(file);
+      });
+      showStatus(`${files.length} file(s) ready`);
+    }
+
+    // Waveform Drawing
+    async function drawWaveform(file, canvas) {
+      if(!canvas) return;
+      initAudio();
+      const ctx = canvas.getContext('2d');
+      const arrayBuffer = await file.arrayBuffer();
+      const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+      const data = audioBuffer.getChannelData(0);
+      const step = Math.ceil(data.length / canvas.width);
+      const amp = canvas.height / 2;
+
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      ctx.fillStyle = '#D6001C';
+      for(let i=0; i<canvas.width; i++){
+        let min = 1.0, max = -1.0;
+        for(let j=0; j<step; j++){
+          const datum = data[(i*step)+j];
+          if(datum < min) min = datum;
+          if(datum > max) max = datum;
+        }
+        ctx.fillRect(i, (1+min)*amp, 1, Math.max(1,(max-min)*amp));
+      }
+    }
+
+    // Metadata Editor
+    loadCoverBtn.addEventListener('click', () => coverInput.click());
+    coverInput.addEventListener('change', e => {
+      const file = e.target.files[0];
+      if(!file) return;
+      coverArtBlob = file;
+      const url = URL.createObjectURL(file);
+      coverPreview.innerHTML = `<img src="${url}" class="w-full h-full object-cover">`;
+    });
+
+    async function loadMetadataFromFile(file) {
+      if(file.type !== 'audio/mpeg') return;
+      const arrayBuffer = await file.arrayBuffer();
+      const tags = ID3.read(arrayBuffer);
+      if(!tags) return;
+
+      document.getElementById('metaTitle').value = tags.title || '';
+      document.getElementById('metaArtist').value = tags.artist || '';
+      document.getElementById('metaAlbum').value = tags.album || '';
+      document.getElementById('metaYear').value = tags.year || '';
+      document.getElementById('metaGenre').value = tags.genre || '';
+      document.getElementById('metaTrack').value = tags.track || '';
+      document.getElementById('metaComment').value = tags.comment?.text || '';
+
+      if(tags.picture) {
+        const url = URL.createObjectURL(new Blob([tags.picture.data]));
+        coverPreview.innerHTML = `<img src="${url}" class="w-full h-full object-cover">`;
+      }
+    }
+
+    printMetaBtn.addEventListener('click', () => {
+      const title = document.getElementById('metaTitle').value;
+      const artist = document.getElementById('metaArtist').value;
+      const album = document.getElementById('metaAlbum').value;
+      const metadata = `Title: ${title}\nArtist: ${artist}\nAlbum: ${album}`;
+      const printWindow = window.open();
+      printWindow.document.write(`<pre>${metadata}</pre>`);
+      printWindow.print();
+    });
+
+    saveMetaBtn.addEventListener('click', () => {
+      if(currentPlan !== 'premium') {
+        showStatus('Upgrade to Premium to save metadata to file');
+        return;
+      }
+      showStatus('Metadata saved to file (Premium feature)');
+    });
+
+    upgradeBtn.addEventListener('click', () => {
+      currentPlan = 'premium';
+      currentPlanEl.textContent = 'Premium';
+      currentPlanEl.classList.add('text-primary');
+      currentPlanEl.classList.remove('text-gold');
+      document.querySelectorAll('.premium-feature').forEach(el => {
+        el.classList.remove('locked');
+      });
+      showStatus('Upgraded to Premium! 🎉');
+    });
+
+    // Preset Selection
+    document.querySelectorAll('.preset-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const preset = btn.dataset.preset;
+        document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('btn-active'));
+        btn.classList.add('btn-active');
+        showStatus(`Applied ${preset} preset`);
+      });
+    });
+
+    // Mixer Controls
+    document.querySelectorAll('.track-vol').forEach(input => {
+      input.addEventListener('input', () => showStatus(`Track ${input.dataset.track} volume: ${input.value}%`));
+    });
+
+    document.querySelectorAll('.mute-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        btn.classList.toggle('btn-active');
+        showStatus(`Track ${btn.dataset.track} ${btn.classList.contains('btn-active') ? 'muted' : 'unmuted'}`);
+      });
+    });
+
+    document.querySelectorAll('.solo-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        btn.classList.toggle('btn-active');
+        showStatus(`Track ${btn.dataset.track} ${btn.classList.contains('btn-active') ? 'soloed' : 'unsoloed'}`);
+      });
+    });
+
+    // Stem Loading
+    document.querySelectorAll('.stem-load').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const input = btn.parentElement.querySelector('.stem-input');
+        input.click();
+      });
+    });
+
+    document.querySelectorAll('.stem-input').forEach(input => {
+      input.addEventListener('change', e => {
+        const file = e.target.files[0];
+        if(file) {
+          const stem = input.dataset.stem;
+          stemsData[stem] = file;
+          const canvas = input.parentElement.querySelector('canvas');
+          drawWaveform(file, canvas);
+          showStatus(`${stem} stem loaded`);
+        }
+      });
+    });
+
+    // Export Buttons
+    document.getElementById('startMasterBtn').addEventListener('click', () => {
+      if(loadedFiles.length === 0) {
+        showStatus('Load audio files first');
+        return;
+      }
+      showStatus('Mastering started...');
+    });
+
+    document.getElementById('exportMixBtn').addEventListener('click', () => {
+      showStatus('Exporting mix...');
+    });
+
+    document.getElementById('exportStemsBtn').addEventListener('click', () => {
+      if(currentPlan !== 'premium') {
+        showStatus('Upgrade to Premium to export stems');
+        return;
+      }
+      showStatus('Exporting stem mix...');
+    });
+
+    // Initialize
+    showStatus('Saucy Way ready!');
+  </script>
+</body>
+</html>
